@@ -1,6 +1,5 @@
 # Copyright 2006-2015 by Chris Jackson.  All rights reserved.
-# This code is part of the Biopython distribution and governed by its
-# license.  Please see the LICENSE file that should have been included
+# Please see the LICENSE file that should have been included
 # as part of this package.
 #
 # This module is for reading WIPO ST.25 format files as SeqRecord objects.
