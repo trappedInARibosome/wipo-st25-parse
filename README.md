@@ -12,7 +12,19 @@ This is a hacked together parser for ST.25 sequence files to get them into biopy
 
 I am not ambitious enough to script something that would actually write files in this format. It should be easier than writing a parser, but I just do not want to do it. 
 
-#Requirements
+# Usage
+
+Import it and call it with a file handle. It returns an iterator that should walk through the file and generate SeqRecord objects. These will have the generic_protein, generic_nucleotide, or generic_RNA alphabets. 
+
+```python
+import ST25SequenceIterator
+
+for seq_record in ST25SequenceIterator(file_handle):
+	...
+```	
+
+
+# Requirements
 
 -	Python 2.X, 3.X (This should be agnostic to python version but I only tested it on the most recent releases of 2 & 3)
 
