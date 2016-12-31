@@ -91,11 +91,84 @@ FEATURE_LOCATION_KEY = "<222>"
 
 
 class ST25SequenceIterator(SequenceIterator):
-    def __init__(self, handle, check_length=True):
+    def __init__(self, handle, check_length=True, seq_len_key=SEQUENCE_LENGTH_KEY, seq_key=SEQUENCE_KEY,
+                 header_map=HEADER_MAP, seqrecord_map=SEQRECORD_MAP, feature_key=FEATURE_KEY,
+                 translation_table=THREE_LETTER_PROT_DICT, allowed_nucl_char=ONE_LETTER_NUCL_LIST,
+                 feature_map=FEATURE_MAP, location_key=FEATURE_LOCATION_KEY, type_key=SEQUENCE_TYPE_KEY,
+                 type_map=SEQUENCE_TYPE_MAP, break_key=RECORD_START_KEY):
+
+        """
+        ST25SequenceIterator takes the ST25 file handle, and any of the file constants that you'd want to overwrite, and
+        acts as an generator for SeqRecord objects.
+
+        This whole thing is kinda a really hacked together mess, but so is the file format so we're even
+
+        Required (Positional) Arguments:
+
+        :param handle: handle
+            An open file handle to the target file
+
+        Optional (Keyword) Arguments:
+
+        :param seq_len_key: str
+            Numeric identifier for the sequence length field. Defaults to SEQUENCE_LENGTH_KEY
+
+        :param seq_key: str
+            Numeric identifier for the sequence field. Defaults to SEQUENCE_KEY
+
+        :param header_map: dict
+            Dict to map numeric identifiers in the header block to object attributes. Defaults to HEADER_MAP
+
+        :param seqrecord_map: dict
+            Dict to map numeric identifiers in the sequence block to object attributes. Defaults to SEQRECORD_MAP
+
+        :param feature_key: str
+            Numeric identifier for the start of a new feature block. Defaults to FEATURE_KEY
+
+        :param header_map: dict
+            Map of the numeric identifiers to SeqRecord object attributes. Defaults to HEADER_MAP
+
+        :param translation_table: dict
+            A dict for translating three letter protein codes to one letter protein sequence. Keys should be all lower
+            case. Defaults to THREE_LETTER_PROT_DICT
+
+        :param allowed_nucl_char: list
+            A list of characters to keep as nucleotide sequence. Defaults to ONE_LETTER_NUCL_LIST
+
+        :param feature_map: dict
+            A dict for mapping feature numeric identifiers to SeqFeature object attributes. Defaults to FEATURE_MAP
+
+        :param location_key: str
+            The numeric identifier for location fields. Defaults to FEATURE_LOCATION_KEY
+
+        :param type_key: str
+            The key that will be used to identify the sequence type record, so that the sequence alphabet can be
+            determined. Defaults to the SEQUENCE_TYPE_KEY constant
+
+        :param type_map: dict
+            A dict for mapping sequence types to Bio.Alphabet objects
+
+        :param break_key: str
+            The numeric identifier to use as the indication that a new record has started. Defaults to BREAK_RECORD_KEY
+        """
 
         SequenceIterator.__init__(self, handle)
 
+        # Time to write some constants/keyword arguments
         self.check_length = check_length
+        self.seq_len_key = seq_len_key
+        self.seq_key = seq_key
+        self.header_map = header_map
+        self.seqrecord_map = seqrecord_map
+        self.feature_key = feature_key
+        self.translation_table = translation_table
+        self.allowed_nucl_char = allowed_nucl_char
+        self.feature_map = feature_map
+        self.location_key = location_key
+        self.type_key = type_key
+        self.type_map = type_map
+        self.break_key = break_key
+
         self.header_data = None
 
     def __iter__(self):
@@ -119,20 +192,25 @@ class ST25SequenceIterator(SequenceIterator):
 
         while True:
 
+            # Get a file chunk and then try parsing it
             file_chunk = next(self.chunk_generator)
 
             try:
+                # If parsing is successful, break and return. Other errors can be raised which are not caught here.
                 seq_record = self.parse_st25(file_chunk)
                 break
+
+            # Roll again if there's a TypeError (this is the error raised for non-sequence or non-parsable file chunks)
             except TypeError:
                 continue
+
+            # Reraise StopIteration when the chunk_generator hits the end of the file
             except StopIteration:
                 raise
 
         return seq_record
 
-    def parse_st25(self, file_chunk, seq_len_key=SEQUENCE_LENGTH_KEY, seq_key=SEQUENCE_KEY, header_map=HEADER_MAP,
-                   seqrecord_map=SEQRECORD_MAP, feature_key=FEATURE_KEY):
+    def parse_st25(self, file_chunk):
         """
         parse_st25 is the main worker function to take a file chunk, which is a list of lines as strings, and turn it
         into a Bio.SeqRecord object. It will raise a TypeError if the file chunk doesnt look like sequence, and will
@@ -145,23 +223,6 @@ class ST25SequenceIterator(SequenceIterator):
         :param file_chunk: list [str]
             A chunk of the input file handle as a list of strings
 
-        Optional (Keyword) Arguments:
-
-        :param seq_len_key: str
-            Numeric identifier for the sequence length field. Defaults to SEQUENCE_LENGTH_KEY
-
-        :param seq_key: str
-            Numeric identifier for the sequence field. Defaults to SEQUENCE_KEY
-
-        :param header_map: dict
-            Dict to map numeric identifiers in the header block to object attributes. Defaults to HEADER_MAP
-
-        :param seqrecord_map: dict
-            Dict to map numeric identifiers in the sequence block to object attributes. Defaults to SEQRECORD_MAP
-
-        :param feature_key: str
-            Numeric identifier for the start of a new feature block. Defaults to FEATURE_KEY
-
         Returns:
 
         :return: Bio.SeqRecord
@@ -173,16 +234,16 @@ class ST25SequenceIterator(SequenceIterator):
         # If this file chunk has the same keys as HEADER_DICT and the header_data hasn't been set, parse it as a
         # header and then set header_data. Yea this is super hacky what can you do.
         if self.header_data is None and chunk_type is None:
-            sum_header_lines = sum(list(record_chunk.keys()).count(head_i) for head_i in header_map.keys())
+            sum_header_lines = sum(list(record_chunk.keys()).count(head_i) for head_i in self.header_map.keys())
             if sum_header_lines > 1:
                 self.header_data = self._st25_parse_header(record_chunk)
                 raise TypeError("Header block")
 
         # Use the alphabet object in chunk_type to pass the sequence block to protein or nucleotide parser
         if chunk_type is generic_protein:
-            seq_obj = self._st25_parse_protein(record_chunk[seq_key], alphabet=chunk_type)
+            seq_obj = self._st25_parse_protein(record_chunk[self.seq_key], alphabet=chunk_type)
         elif chunk_type is generic_nucleotide or chunk_type is generic_rna:
-            seq_obj = self._st25_parse_nucl(record_chunk[seq_key], alphabet=chunk_type)
+            seq_obj = self._st25_parse_nucl(record_chunk[self.seq_key], alphabet=chunk_type)
         else:
             raise TypeError("Unknown sequence")
 
@@ -195,19 +256,19 @@ class ST25SequenceIterator(SequenceIterator):
 
         # If there's data fields with numeric identifiers in the seqrecord_map, set SeqRecord object attributes with the
         # appropriate data
-        for numeric_id in seqrecord_map.keys():
+        for numeric_id in self.seqrecord_map.keys():
             try:
                 attr_to_set = ""
                 for record_line in record_chunk[numeric_id]:
                     attr_to_set += " " + self._st25_get_value(record_line)
-                setattr(seq_record, seqrecord_map[numeric_id], attr_to_set.strip())
+                setattr(seq_record, self.seqrecord_map[numeric_id], attr_to_set.strip())
             except KeyError:
                 pass
 
         # If there are any features, turn them into SeqFeature objects with FeatureLocation locations (if present)
         features = []
         try:
-            for feature_dict in record_chunk[feature_key]:
+            for feature_dict in record_chunk[self.feature_key]:
                 features.append(self._st25_parse_feature(feature_dict))
         except KeyError:
             pass
@@ -217,7 +278,7 @@ class ST25SequenceIterator(SequenceIterator):
         # If the check_length flag is set, make sure that the length in the file matches the parsed sequence object len
         if self.check_length:
             try:
-                seq_quoted_len = int(self._st25_get_value(record_chunk[seq_len_key][0]))
+                seq_quoted_len = int(self._st25_get_value(record_chunk[self.seq_len_key][0]))
 
                 if seq_quoted_len != len(seq_obj):
                     raise ValueError(
@@ -230,7 +291,7 @@ class ST25SequenceIterator(SequenceIterator):
 
         return seq_record
 
-    def _st25_parse_header(self, header_lines, header_map=HEADER_MAP):
+    def _st25_parse_header(self, header_lines):
         """
         Parse header block
 
@@ -239,10 +300,7 @@ class ST25SequenceIterator(SequenceIterator):
         :param header_lines: dict
             File lines keyed by numeric identifier from _st25_process_chunk
 
-        Optional (Keyword) Arguments:
-
-        :param header_map: dict
-            Map of the numeric identifiers to SeqRecord object attributes. Defaults to HEADER_MAP
+        Returns:
 
         :return: dict
             Header data values keyed by the seqrecord attribute name that they should populate
@@ -258,13 +316,13 @@ class ST25SequenceIterator(SequenceIterator):
                 values.append(self._st25_get_value(line))
 
             try:
-                header_data[header_map[numeric_id]] = " ".join(values)
+                header_data[self.header_map[numeric_id]] = " ".join(values)
             except KeyError:
                 raise ValueError("Unknown numeric identifier '{}' in header".format(numeric_id))
 
         return header_data
 
-    def _st25_parse_protein(self, sequence_lines, alphabet=generic_protein, translation_table=THREE_LETTER_PROT_DICT):
+    def _st25_parse_protein(self, sequence_lines, alphabet=generic_protein):
         """
         Parse protein-type data into a Seq object. Splits each line by whitespace and then looks for things that are in
         the translation table key list. Throws away anything else. Also throws away any line with a colon in it just
@@ -279,9 +337,7 @@ class ST25SequenceIterator(SequenceIterator):
 
         :param alphabet: Bio.Alphabet
 
-        :param translation_table: dict
-            A dict for translating three letter protein codes to one letter protein sequence. Keys should be all lower
-            case. Defaults to THREE_LETTER_PROT_DICT
+        Returns:
 
         :return: Bio.Seq
             Seq object with the parsed single-letter protein sequence
@@ -301,13 +357,13 @@ class ST25SequenceIterator(SequenceIterator):
 
             for aa_triple_code in line_tabs:
                 try:
-                    active_sequence_string += translation_table[aa_triple_code.lower()]
+                    active_sequence_string += self.translation_table[aa_triple_code.lower()]
                 except KeyError:
                     pass
 
         return Seq(active_sequence_string, alphabet=alphabet)
 
-    def _st25_parse_nucl(self, sequence_lines, alphabet=generic_nucleotide, allowed_nucl_char=ONE_LETTER_NUCL_LIST):
+    def _st25_parse_nucl(self, sequence_lines, alphabet=generic_nucleotide):
         """
         Parse nucleotide data into a Seq object. Throws away any line with a colon in it just to be on the safe side,
         then keeps any character in the allowed character list
@@ -320,9 +376,6 @@ class ST25SequenceIterator(SequenceIterator):
         Optional (Keyword) Arguments:
 
         :param alphabet: Bio.Alphabet
-
-        :param allowed_nucl_char: list
-            A list of characters to keep as nucleotide sequence. Defaults to ONE_LETTER_NUCL_LIST
 
         Returns:
 
@@ -338,12 +391,12 @@ class ST25SequenceIterator(SequenceIterator):
                 continue
 
             for char in line.strip():
-                if char.lower() in allowed_nucl_char:
+                if char.lower() in self.allowed_nucl_char:
                     active_sequence_string += char
 
         return Seq(active_sequence_string, alphabet=alphabet)
 
-    def _st25_parse_feature(self, feature_dict, feature_map=FEATURE_MAP, location_key=FEATURE_LOCATION_KEY):
+    def _st25_parse_feature(self, feature_dict):
         """
         Parse a block of feature data into a SeqFeature object. If there's a location block, turn it into a
         FeatureLocation object.
@@ -352,14 +405,6 @@ class ST25SequenceIterator(SequenceIterator):
 
         :param feature_dict: dict
             Dict of numeric identifiers that are keying a list of file lines
-
-        Optional (Keyword) ArgumentsL
-
-        :param feature_map: dict
-            A dict for mapping feature numeric identifiers to SeqFeature object attributes. Defaults to FEATURE_MAP
-
-        :param location_key: str
-            The numeric identifier for location fields. Defaults to FEATURE_LOCATION_KEY
 
         Returns:
 
@@ -370,10 +415,10 @@ class ST25SequenceIterator(SequenceIterator):
 
         # Take all the keys in feature_map and, for any of them that exist in feature_dict, get the field values and
         # set them as attributes in the SeqFeature object
-        for feat_key in feature_map.keys():
+        for feat_key in self.feature_map.keys():
             try:
                 attr_to_set = " ".join(map(self._st25_get_value, feature_dict[feat_key]))
-                setattr(feature, feature_map[feat_key], attr_to_set)
+                setattr(feature, self.feature_map[feat_key], attr_to_set)
             except KeyError:
                 pass
 
@@ -381,7 +426,7 @@ class ST25SequenceIterator(SequenceIterator):
         # attribute in the SeqFeature object with a list of FeatureLocations
         locations = []
         try:
-            for loc in feature_dict[location_key]:
+            for loc in feature_dict[self.location_key]:
                 seq_loc = self._st25_parse_location(loc)
                 if seq_loc is not None:
                     locations.append(seq_loc)
@@ -404,7 +449,7 @@ class ST25SequenceIterator(SequenceIterator):
 
         Optional (Keyword) ArgumentsL
 
-        :param location_middle: dict
+        :param location_middle: str
             The string to break the location line at
 
         Returns:
@@ -434,7 +479,7 @@ class ST25SequenceIterator(SequenceIterator):
 
         return seq_loc
 
-    def _st25_process_chunk(self, chunk_list_of_strings, type_key=SEQUENCE_TYPE_KEY, feature_key=FEATURE_KEY):
+    def _st25_process_chunk(self, chunk_list_of_strings):
         """
         _st25_process_chunk takes a list of file lines that comprise a single record and returns it as a dict keyed by
         line numeric identifier, as defined by WIPO ST.25 (See USPTO 2422). It processes the SEQUENCE_TYPE_KEY record
@@ -446,17 +491,6 @@ class ST25SequenceIterator(SequenceIterator):
         :param chunk_list_of_strings: list [str]
             A list of file lines for a sequence block
 
-        Keyword (Optional) Arguments:
-
-        :param type_key: str
-            The key that will be used to identify the sequence type record, so that the sequence alphabet can be
-            determined. Defaults to the SEQUENCE_TYPE_KEY constant
-
-        :param feature_key: str
-            The key that will be used to identify the a sequence feature record, so that the feature record can be
-            generated. Defaults to the SEQUENCE_TYPE_KEY constant
-
-
         Returns:
 
         :return processed_data_dict: dict
@@ -464,12 +498,11 @@ class ST25SequenceIterator(SequenceIterator):
             lines from that numeric identifier as strings.
 
         :return sequence_alphabet: Bio.Alphabet
-            The sequence alphabet corresponding to the sequence record
 
         """
 
-        feature_map = list(FEATURE_MAP.keys())
-        feature_map.append(FEATURE_LOCATION_KEY)
+        feature_map = list(self.feature_map.keys())
+        feature_map.append(self.location_key)
 
         # Holds multiline numeric identifiers during scan
         active_key = None
@@ -496,14 +529,14 @@ class ST25SequenceIterator(SequenceIterator):
 
             # If the numeric identifier matches the sequence type identifier, parse the line and set the sequence
             # alphabet
-            if active_key == type_key:
+            if active_key == self.type_key:
                 try:
-                    sequence_alphabet = SEQUENCE_TYPE_MAP[self._st25_get_value(line_contents)]
+                    sequence_alphabet = self.type_map[self._st25_get_value(line_contents)]
                 except KeyError:
                     sequence_alphabet = None
 
             # If the numeric identifier matches the feature identifier,
-            elif active_key == feature_key:
+            elif active_key == self.feature_key:
                 if active_feature is not None:
                     _add_dict_list(processed_data_dict, active_key, active_feature)
 
@@ -516,29 +549,20 @@ class ST25SequenceIterator(SequenceIterator):
                 _add_dict_list(processed_data_dict, active_key, line_contents)
 
         if active_feature is not None:
-            _add_dict_list(processed_data_dict, feature_key, active_feature)
+            _add_dict_list(processed_data_dict, self.feature_key, active_feature)
 
         return processed_data_dict, sequence_alphabet
 
-    def _chunk_records(self, break_key=None):
+    def _chunk_records(self):
         """
-        _chunk_records takes a file handle and yields a list of lines broken at a specified numeric identifier key.
+        _chunk_records takes the file handle and yields a list of lines broken at a specified numeric identifier key.
         By default it breaks the records on the <210> SEQ ID NO line.
-
-        Keyword (Optional) Arguments:
-
-        :param break_key: str
-            The key that will be used to identify when a new sequence block has been reached, so that the old one can be
-            yielded. Defaults to the RECORD_START_KEY constant
 
         Yields:
 
         :yield active_chunk: list [str]
             A list of file lines from the handle, broken at break_key
         """
-
-        if break_key is None:
-            break_key = RECORD_START_KEY
 
         active_chunk = []
 
@@ -548,7 +572,7 @@ class ST25SequenceIterator(SequenceIterator):
 
             # If the line numeric identifier is the ID to break the records at, then yield the most recent chunk
             # And then start a new chunk
-            if line_key == break_key:
+            if line_key == self.break_key:
 
                 return_chunk = active_chunk
                 active_chunk = [line.strip()]
@@ -562,7 +586,6 @@ class ST25SequenceIterator(SequenceIterator):
         yield active_chunk
 
     def _st25_get_numeric_id(self, line_to_check):
-
         assert isinstance(line_to_check, str)
 
         try:
