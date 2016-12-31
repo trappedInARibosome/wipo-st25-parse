@@ -14,8 +14,8 @@ from __future__ import print_function
 from Bio.Alphabet import generic_protein
 from Bio.Alphabet import generic_nucleotide
 from Bio.Alphabet import generic_rna
-from Bio.Seq import Seq
 
+from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.SeqFeature import SeqFeature
 from Bio.SeqFeature import FeatureLocation
@@ -501,8 +501,7 @@ class ST25SequenceIterator(SequenceIterator):
 
         """
 
-        feature_map = list(self.feature_map.keys())
-        feature_map.append(self.location_key)
+        feature_keys = list(self.feature_map.keys()) + [self.location_key]
 
         # Holds multiline numeric identifiers during scan
         active_key = None
@@ -542,7 +541,7 @@ class ST25SequenceIterator(SequenceIterator):
 
                 active_feature = {active_key: line_contents}
 
-            elif active_key in feature_map:
+            elif active_key in feature_keys:
                 _add_dict_list(active_feature, active_key, line_contents)
 
             else:
